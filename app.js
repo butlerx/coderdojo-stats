@@ -288,9 +288,9 @@ function newUsers () {
       }
       fs.appendFileSync(filename, '\nNew users in the past ' + interval + ' days\n');
       fs.appendFileSync(filename, 'Ninjas under 13 ' + u13.length + '\n');
-      fs.appendFileSync(filename, 'Male ' + u13male + ' female ' + u13female + ' Undisclosed ' + u13undisclosed + '\n');
+      fs.appendFileSync(filename, 'Male ' + u13male + ', female ' + u13female + ' Undisclosed ' + u13undisclosed + '\n');
       fs.appendFileSync(filename, 'Ninjas over 13 ' + o13.length + '\n');
-      fs.appendFileSync(filename, 'Male ' + o13male + ' female ' + o13female + ' Undisclosed ' + o13undisclosed + '\n');
+      fs.appendFileSync(filename, 'Male ' + o13male + ', female ' + o13female + ' Undisclosed ' + o13undisclosed + '\n');
       fs.appendFileSync(filename, 'Adults ' + adults.length + '\n');
       console.log('that stupid long one is done, i blame the db');
       return true;
@@ -345,9 +345,9 @@ function totalUsers () {
       }
       fs.appendFileSync(filename, '\nTotal users\n');
       fs.appendFileSync(filename, 'Ninjas under 13 ' + u13.length + '\n');
-      fs.appendFileSync(filename, 'Male ' + u13male + ' female ' + u13female + ' Undisclosed ' + u13undisclosed + '\n');
+      fs.appendFileSync(filename, 'Male ' + u13male + ', female ' + u13female + ', Undisclosed ' + u13undisclosed + '\n');
       fs.appendFileSync(filename, 'Ninjas over 13 ' + o13.length + '\n');
-      fs.appendFileSync(filename, 'Male ' + o13male + ' female ' + o13female + ' Undisclosed ' + o13undisclosed + '\n');
+      fs.appendFileSync(filename, 'Male ' + o13male + ' female ' + o13female + ', Undisclosed ' + o13undisclosed + '\n');
       fs.appendFileSync(filename, 'Adults ' + adults.length + '\n');
       console.log('that other stupid long one is done, i blame the db');
       return true;
@@ -411,7 +411,7 @@ function averageEventCap () {
       }
       fs.appendFileSync(filename, '\nTickets Sold\n');
       for (var i in events) {
-        fs.appendFileSync(filename, events[i].name + ' ' + ' tickets Sold ' + events[i].tickets + ' checkins ' + events[i].checkin + ' tickets available ' + events[i].quantity + '\n');
+        fs.appendFileSync(filename, events[i].name + ', tickets Sold: ' + events[i].tickets + ', checkins: ' + events[i].checkin + ', tickets available: ' + events[i].quantity + '\n');
       }
       console.log('written');
     });
