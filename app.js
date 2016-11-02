@@ -67,15 +67,24 @@ var eventsClient = new pg.Client({
 var filename = date.format("YYYY-MM-DD") + '-stats.txt';
 console.log(filename);
 fs.appendFileSync(filename, date.format("YYYY-MM-DD") +'\n');
-numberUsers();
-numberUsers('mentors')
-activeDojos();
-dojosUsingEvents();
-recentEvents();
-regularEvents();
-newUsers();
-totalUsers();
-averageEventCap();
+PMBOPartlyFunctionalDojo();
+PMBOFullyFunctionalDojo();
+// activeDojoMentorsOverLastMonths();
+activeDojoChampionsOverLastMonths();
+// partiallyActiveDojos();
+// fullyActiveDojos();
+
+// numberUsers();
+// numberUsers('mentors')
+// activeDojos();
+// dojosUsingEvents();
+// recentEvents();
+// regularEvents();
+// newUsers();
+// totalUsers();
+// averageEventCap();
+
+// Child w/ badges > 2 : SELECT user_id, count(*) FROM (SELECT user_id, unnest(badges) as badge FROM cd_profiles WHERE user_type LIKE 'attendee%') as subQ GROUP BY user_id HAVING count(*) >2;
 
 // Connect to db and execute
 usersClient.connect(function (err) {
@@ -120,6 +129,190 @@ function activeDojoChampions() {
         reject(reason);
       });
     });
+  });
+}
+
+function activeDojosByRecentEvents( ){
+  return eventsDB('cd_applications').select('id', 'event_id', 'attendance')
+  .whereRaw('ticket_type::text LIKE \'ninja\' AND attendance IS NOT NULL')
+  .then(function(events){
+    var validEvents = _.filter(events, function(event){
+      var date = new Date();
+      var latestDate = event.attendance[0];
+      // Seems like attendances are not ordered
+      _.each(event.attendance, function(attendanceDate){
+        if(attendanceDate > latestDate) {
+          latestDate = attendanceDate;
+        }
+      });
+      if (latestDate > date.setDate(date.getDate() - 365)) {
+        return true;
+      }
+      return false;
+    });
+    return eventsDB('cd_applications').select('event_id').count('*')
+      .whereIn('id', _.map(validEvents,'id'))
+      .groupByRaw('event_id').havingRaw('count(*) > 1');
+  })
+  .then(function(validEvents){
+    return eventsDB('cd_events').select('dojo_id').count('*').whereIn('id', _.map(validEvents,'event_id')).groupByRaw('dojo_id').havingRaw('count(*) > 2');
+  })
+  .then(function(dojos){
+    return dojosDB('cd_dojos').select('id').whereIn('id', _.map(dojos, 'dojo_id'));
+  })
+  .then(function(dojos){
+    return Promise.resolve(dojos);
+  });
+}
+
+function activeDojoMentorsOverLastMonths() {
+  return dojosDB('cd_usersdojos').select('user_id').distinct('dojo_id').whereRaw('user_types::text LIKE \'%mentor%\'')
+  .then(function (mentors){
+      return userDB('sys_user').select('id').whereRaw('sys_user.last_login>=  now() - interval \'12 months\'').whereIn('id', _.map(mentors, 'user_id'));
+  })
+  .then(function(mentors){
+    return dojosDB('cd_usersdojos').select('user_id').distinct('dojo_id').whereRaw('user_types::text LIKE \'%mentor%\'')
+    .whereIn('user_id', _.map(mentors, 'id'));
+  })
+  .then(function(relations) {
+    return dojosDB('cd_dojos').select('id').whereIn('id', _.map(relations, 'dojo_id')).whereRaw('stage != 4 AND verified = 1 AND deleted = 0')
+    .then(function (activeDojos){
+      return _.filter(relations, function(relation){
+        return _.map(activeDojos, 'id').indexOf(relation.dojo_id) > -1;
+      });
+    });
+  })
+  // We need to do it this way to ensure that we check for every champion of every dojos when there is multi champs/dojo
+  .then( function(relations){
+    var dojos = _.uniq(_.map(relations,'dojo_id'));
+    var mentors = _.uniq(_.map(relations,'user_id'));
+    console.log('Active mentors', dojos.length, mentors.length, relations.length);
+    return Promise.resolve(dojos);
+  });
+}
+
+function activeDojoChampionsOverLastMonths() {
+  return dojosDB('cd_usersdojos').select('user_id').distinct('dojo_id').whereRaw('user_types::text LIKE \'%champion%\'').then(
+    function (champions){
+      return userDB('sys_user').select('id').whereRaw('sys_user.last_login>=  now() - interval \'12 months\'').whereIn('id', _.map(champions, 'user_id'));
+  })
+  .then(function(champions){
+    return dojosDB('cd_usersdojos').select('user_id').distinct('dojo_id').whereRaw('user_types::text LIKE \'%champion%\'').whereIn('user_id', _.map(champions, 'id'))
+    .then(function(relations){
+      return dojosDB('cd_dojos').select('id').whereIn('id', _.map(relations, 'dojo_id')).whereRaw('stage != 4 AND verified = 1 AND deleted = 0')
+      .then(function (activeDojos){
+        return _.filter(relations, function(relation){
+          return _.map(activeDojos, 'id').indexOf(relation.dojo_id) > -1;
+        });
+      });
+    });
+  })
+  // We need to do it this way to ensure that we check for every champion of every dojos when there is multi champs/dojo
+  .then( function(relations){
+    var dojos = _.uniq(_.map(relations,'dojo_id'));
+    var champions = _.uniq(_.map(relations,'user_id'));
+    console.log('Active champions', dojos.length, relations.length, champions.length);
+    return Promise.resolve(dojos);
+  });
+}
+
+function PMBOPartlyFunctionalDojo () {
+  var dojos = [];
+  fullyActiveDojosByUser()
+  .then(function (dojosByUsers){
+    dojos = dojos.concat(dojosByUsers);
+  })
+  .then(activeDojosByRecentEvents)
+  .then(function(dojosByEvents) {
+    console.log(dojos.length, dojosByEvents.length);
+    dojos = dojos.concat(dojosByEvents);
+    dojos = _.uniq(_.map(dojos, 'id'));
+    console.log('PMBOPartlyFunctionalDojo', dojos.length);
+    return dojos;
+  });
+}
+
+
+function PMBOFullyFunctionalDojo () {
+  var dojos = [];
+  fullyActiveDojosByUser()
+  .then(function (dojosByUsers){
+    dojos = dojos.concat(dojosByUsers);
+  })
+  .then(activeDojosByRecentEvents)
+  .then(function(dojosByEvents) {
+    console.log(dojos.length, dojosByEvents.length);
+    dojos = _.intersection(_.map(dojos, 'id'), _.map(dojosByEvents, 'id'));
+    console.log('PMBOFullyFunctionalDojo', dojos.length);
+    return dojos;
+  });
+}
+
+function fullyActiveDojosByUser() {
+  return activeDojoChampionsOverLastMonths()
+  .then(function(dojos) {
+    return dojosDB('cd_usersdojos').select('user_id').whereIn('dojo_id', dojos);
+  })
+  .then(function(userdojos) {
+    return userDB('cd_profiles').select('user_id', 'badges').whereIn('user_id', _.map(userdojos, 'user_id')).andWhereNot('badges', null);
+  })
+  .then(function(users) {
+    var badged = _.filter(users, function(user){
+      var isBadged =  _.some(user.badges, function(badge) {
+        var date = new Date();
+        if (new Date(badge.dateAccepted) > date.setDate(date.getDate() - 365)  &&
+          !_.includes(['my-1st-dojo!','europe-code-week-2016', 'attend-5-dojo-sessions!', 'attend-10-dojo-sessions!','attend-25-dojo-sessions!','mentor-badge'], badge.slug)) {
+          return true;
+        }
+        return false;
+      });
+      return isBadged;
+    });
+    console.log('badgedUsers', badged.length);
+    return Promise.resolve(badged);
+  })
+  .then(function(badged) {
+    return dojosDB('cd_usersdojos').select('dojo_id').whereIn('user_id', _.map(badged, 'user_id'));
+  })
+  .then(function(dojos) {
+    return dojosDB('cd_dojos').select('id').whereIn('id', _.map(dojos, 'dojo_id'));
+  })
+  .then(function(dojos) {
+    return Promise.resolve(dojos);
+  });
+}
+
+
+
+function partiallyActiveDojos() {
+  return activeDojoChampionsOverLastMonths()
+  .then(function(dojos) {
+    return dojosDB('cd_usersdojos').select('user_id').whereIn('dojo_id', dojos);
+  })
+  .then(function(userdojos) {
+    return userDB('cd_profiles').select('user_id', 'badges').whereIn('user_id', _.map(userdojos, 'user_id')).andWhereNot('badges', null);
+  })
+  .then(function(users) {
+    var badged = _.filter(users, function(user){
+      var isBadged =  _.some(user.badges, function(badge) {
+        var date = new Date();
+        // console.log(new Date(badge.dateAccepted), date.setDate(date.getDate() - 365), new Date(badge.dateAccepted) > date.setDate(date.getDate() - 365) ); // minus the date
+        if (new Date(badge.dateAccepted) > date.setDate(date.getDate() - 365) ) {
+          return true;
+        }
+        return false;
+      });
+      return isBadged;
+    });
+    console.log('badgedUsers', badged.length);
+    return Promise.resolve(badged);
+  })
+  .then(function(badged) {
+    // console.log(badged);
+    return dojosDB('cd_usersdojos').select('dojo_id').whereIn('user_id', _.map(badged, 'user_id'));
+  })
+  .then(function(dojos) {
+    console.log('dojos', _.uniq(dojos).length);
   });
 }
 
