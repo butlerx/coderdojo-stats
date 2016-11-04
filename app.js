@@ -69,7 +69,7 @@ console.log(filename);
 fs.appendFileSync(filename, date.format("YYYY-MM-DD") +'\n');
 PMBOPartlyFunctionalDojo();
 PMBOFullyFunctionalDojo();
-// activeDojoMentorsOverLastMonths();
+activeDojoMentorsOverLastMonths();
 activeDojoChampionsOverLastMonths();
 // partiallyActiveDojos();
 // fullyActiveDojos();
@@ -145,7 +145,7 @@ function activeDojosByRecentEvents( ){
           latestDate = attendanceDate;
         }
       });
-      if (latestDate > date.setDate(date.getDate() - 365)) {
+      if (latestDate > new Date(2016, 01, 01)) {
         return true;
       }
       return false;
@@ -168,7 +168,7 @@ function activeDojosByRecentEvents( ){
 function activeDojoMentorsOverLastMonths() {
   return dojosDB('cd_usersdojos').select('user_id').distinct('dojo_id').whereRaw('user_types::text LIKE \'%mentor%\'')
   .then(function (mentors){
-      return userDB('sys_user').select('id').whereRaw('sys_user.last_login>=  now() - interval \'12 months\'').whereIn('id', _.map(mentors, 'user_id'));
+      return userDB('sys_user').select('id').whereRaw('sys_user.last_login>=  now() - interval \'12 months\' AND sys_user.when > \'2016-01-01\'').whereIn('id', _.map(mentors, 'user_id'));
   })
   .then(function(mentors){
     return dojosDB('cd_usersdojos').select('user_id').distinct('dojo_id').whereRaw('user_types::text LIKE \'%mentor%\'')
@@ -192,9 +192,9 @@ function activeDojoMentorsOverLastMonths() {
 }
 
 function activeDojoChampionsOverLastMonths() {
-  return dojosDB('cd_usersdojos').select('user_id').distinct('dojo_id').whereRaw('user_types::text LIKE \'%champion%\'').then(
+  return dojosDB('cd_usersdojos').select('user_id').distinct('dojo_id').whereRaw('user_types::text LIKE \'%champion%\' OR user_permissions::text LIKE \'%dojo-admin%\'').then(
     function (champions){
-      return userDB('sys_user').select('id').whereRaw('sys_user.last_login>=  now() - interval \'12 months\'').whereIn('id', _.map(champions, 'user_id'));
+      return userDB('sys_user').select('id').whereRaw('sys_user.last_login>=  now() - interval \'12 months\' AND sys_user.when > \'2016-01-01\'').whereIn('id', _.map(champions, 'user_id'));
   })
   .then(function(champions){
     return dojosDB('cd_usersdojos').select('user_id').distinct('dojo_id').whereRaw('user_types::text LIKE \'%champion%\'').whereIn('user_id', _.map(champions, 'id'))
@@ -260,7 +260,7 @@ function fullyActiveDojosByUser() {
     var badged = _.filter(users, function(user){
       var isBadged =  _.some(user.badges, function(badge) {
         var date = new Date();
-        if (new Date(badge.dateAccepted) > date.setDate(date.getDate() - 365)  &&
+        if (new Date(badge.dateAccepted) > new Date(2016, 01, 01)  &&
           !_.includes(['my-1st-dojo!','europe-code-week-2016', 'attend-5-dojo-sessions!', 'attend-10-dojo-sessions!','attend-25-dojo-sessions!','mentor-badge'], badge.slug)) {
           return true;
         }
@@ -297,7 +297,7 @@ function partiallyActiveDojos() {
       var isBadged =  _.some(user.badges, function(badge) {
         var date = new Date();
         // console.log(new Date(badge.dateAccepted), date.setDate(date.getDate() - 365), new Date(badge.dateAccepted) > date.setDate(date.getDate() - 365) ); // minus the date
-        if (new Date(badge.dateAccepted) > date.setDate(date.getDate() - 365) ) {
+        if (new Date(badge.dateAccepted) > new Date(2016, 01, 01) ) {
           return true;
         }
         return false;
