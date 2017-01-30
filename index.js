@@ -23,6 +23,7 @@ program
   .option('--get-dojos', 'Output all dojo and champion emails to file')
   .option('--include-non-dojo-members', 'Include emails of those not a member of a dojo in email dump')
   .option('--countries <items>', 'Comma separated list of country alpha2 codes', function (val) { return val.split(','); })
+  .option('--excluded-countries <items>', 'Comma separated list of country alpha2 codes to be excluded', function (val) { return val.split(','); })
   .option('--usersdb', 'Database name for users database')
   .option('--dojosdb', 'Database name for dojos database')
   .option('--eventsdb', 'Database name for events database')
@@ -45,6 +46,7 @@ var getO13s = program.getO13s || false;
 var getDojos = program.getDojos || false;
 var includeNonDojoMembers = program.includeNonDojoMembers || false;
 var countries = program.countries || [];
+var excludedCountries = program.excludedCountries || [];
 
 if (!getStats && !getChampions && !getMentors && !getParents && !getO13s && !getDojos) {
   program.outputHelp();
@@ -113,7 +115,7 @@ if (getChampions) {
       promiseChain = promiseChain.then(getChampionsEmailWithNewsletter(country));
     });
   } else {
-    promiseChain = promiseChain.then(getChampionsEmailWithNewsletter());
+    promiseChain = promiseChain.then(getChampionsEmailWithNewsletter(null, excludedCountries));
   }
 }
 if (getO13s) {
@@ -122,7 +124,7 @@ if (getO13s) {
       promiseChain = promiseChain.then(getO13sEmailWithNewsletter(country));
     });
   } else {
-    promiseChain = promiseChain.then(getO13sEmailWithNewsletter());
+    promiseChain = promiseChain.then(getO13sEmailWithNewsletter(null, excludedCountries));
   }
 }
 if (getMentors) {
@@ -131,7 +133,7 @@ if (getMentors) {
       promiseChain = promiseChain.then(getMentorsEmailWithNewsletter(country));
     });
   } else {
-    promiseChain = promiseChain.then(getMentorsEmailWithNewsletter());
+    promiseChain = promiseChain.then(getMentorsEmailWithNewsletter(null, excludedCountries));
   }
 }
 if (getParents) {
@@ -140,7 +142,7 @@ if (getParents) {
       promiseChain = promiseChain.then(getParentsEmailWithNewsletter(country));
     });
   } else {
-    promiseChain = promiseChain.then(getParentsEmailWithNewsletter());
+    promiseChain = promiseChain.then(getParentsEmailWithNewsletter(null, excludedCountries));
   }
 }
 if (getDojos) {
@@ -149,7 +151,7 @@ if (getDojos) {
       promiseChain = promiseChain.then(getDojoAndChampionEmails(country));
     });
   } else {
-    promiseChain = promiseChain.then(getDojoAndChampionEmails());
+    promiseChain = promiseChain.then(getDojoAndChampionEmails(null, excludedCountries));
   }
 }
 promiseChain = promiseChain.then(disconnectFromClient(usersClient));
@@ -326,26 +328,32 @@ function getEveryNonChampionUsersEmailWithNewsletter () {
   });
 }
 
-function getChampionsEmailWithNewsletter (countryCode) {
-  return getUserEmailWithNewsletter('champion', countryCode);
+function getChampionsEmailWithNewsletter (countryCode, excludedCountries) {
+  return getUserEmailWithNewsletter('champion', countryCode, excludedCountries);
 }
 
-function getMentorsEmailWithNewsletter (countryCode) {
-  return getUserEmailWithNewsletter('mentor', countryCode);
+function getMentorsEmailWithNewsletter (countryCode, excludedCountries) {
+  return getUserEmailWithNewsletter('mentor', countryCode, excludedCountries);
 }
 
-function getParentsEmailWithNewsletter (countryCode) {
-  return getUserEmailWithNewsletter('parent-guardian', countryCode);
+function getParentsEmailWithNewsletter (countryCode, excludedCountries) {
+  return getUserEmailWithNewsletter('parent-guardian', countryCode, excludedCountries);
 }
 
-function getO13sEmailWithNewsletter (countryCode) {
-  return getUserEmailWithNewsletter('o13', countryCode);
+function getO13sEmailWithNewsletter (countryCode, excludedCountries) {
+  return getUserEmailWithNewsletter('o13', countryCode, excludedCountries);
 }
 
-function getUserEmailWithNewsletter(userType, countryCode) {
+function getUserEmailWithNewsletter(userType, countryCode, excludedCountries) {
   var query = 'SELECT user_id FROM cd_usersdojos ud INNER JOIN cd_dojos d ON ud.dojo_id = d.id ' +
     ' WHERE ( array_to_string(user_types, \',\') LIKE \'%' + userType + '%\' )';
-  if (countryCode) query += ' AND alpha2 = \'' + countryCode + '\''; // God this is ugly
+  if (countryCode) {
+    query += ' AND alpha2 = \'' + countryCode + '\''; // God this is ugly
+  } else if (excludedCountries) {
+    excludedCountries.forEach(function (excludedCountry) {
+      query += ' AND alpha2 != \'' + excludedCountry + '\'';
+    })
+  }
   return function () {
     return new Promise( function(resolve, reject) {
       console.log('Getting emails for ' + userType + ' in ' + countryCode);
@@ -377,9 +385,10 @@ function getUserEmailWithNewsletter(userType, countryCode) {
                 championsProfiles = _.uniqBy(championsProfiles, 'email');
                 if (championsProfiles.length > 0) {
                   var csv = json2csv({ data: championsProfiles });
-                  fs.writeFile(userType + (countryCode || '') + 'Newsletter.csv', csv, function(err) {
+                  var fileName = userType + (countryCode || '') + 'Newsletter' + (excludedCountries && excludedCountries.length > 0 ? '_excluding_' + excludedCountries.join('_') : '') + '.csv';
+                  fs.writeFile(fileName, csv, function(err) {
                     if (err) throw err;
-                    console.log(userType + (countryCode || '') + 'Newsletter.csv saved');
+                    console.log(fileName + ' saved');
                     return resolve();
                   });
                 } else {
@@ -437,7 +446,7 @@ function getDojoAndChampionEmails (countryCode) {
                   Promise.all(selectChain)
                     .then(function (results) {
                       results.forEach(function (users) {
-                        if (users[0].userTypes.indexOf('champion') >= 0) {
+                        if (users[0] && users[0].userTypes.indexOf('champion') >= 0) {
                           csvRows.push({
                             championName: users[0].name,
                             championEmail: users[0].email,
