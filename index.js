@@ -4,10 +4,7 @@ var _ = require('lodash');
 var moment = require('moment');
 var Promise = require('bluebird');
 var fs = require('fs');
-var pg = require('pg');
 var json2csv = require('json2csv');
-
-pg.types.setTypeParser(20, 'text', parseInt);
 
 var program = require('commander');
 
@@ -15,6 +12,7 @@ program
   .version('0.0.1')
   .usage('[options]')
   .option('--get-stats', 'Output stats to file')
+  .option('--get-reg-stats', 'Output regular stats to file from https://docs.google.com/document/d/1Vh9WTRlmpT8WYcLRo05vGsFyy9XzFE3mzKvaVZXMI0M/edit')
   .option('--interval', 'Amount of previous days to gather stats for')
   .option('--get-champions', 'Output champions emails signed up to mailing list to file')
   .option('--get-mentors', 'Output mentors emails signed up to mailing list to file')
@@ -39,6 +37,7 @@ var user = program.user || 'platform';
 var password = program.password || 'QdYx3D5y';
 var interval = program.interval || '30';
 var getStats = program.getStats || false;
+var getRegularStats = program.getRegStats || false;
 var getChampions = program.getChampions || false;
 var getMentors = program.getMentors || false;
 var getParents = program.getParents || false;
@@ -47,60 +46,21 @@ var getDojos = program.getDojos || false;
 var includeNonDojoMembers = program.includeNonDojoMembers || false;
 var countries = program.countries || [];
 var excludedCountries = program.excludedCountries || [];
+var pgCD = require('./connection')(user, password, {
+  usersdb: usersdb,
+  eventsdb: eventsdb,
+  dojosdb: dojosdb
+});
+var usersDB = pgCD.usersDB, eventsDB = pgCD.eventsDB, dojosDB = pgCD.dojosDB,
+  usersClient = pgCD.usersClient, eventsClient = pgCD.eventsClient, dojosClient = pgCD.dojosClient;
 
-if (!getStats && !getChampions && !getMentors && !getParents && !getO13s && !getDojos) {
+if (!getStats && !getRegularStats && !getChampions && !getMentors && !getParents && !getO13s && !getDojos) {
   program.outputHelp();
   process.exit(1);
 }
 
 var date = moment();
 var monthAgo = moment().day(-interval);
-
-var userDB = require('knex')({
-  client: 'pg',
-  connection: {
-    host     : '127.0.0.1',
-    user     : user,
-    password : password,
-    database : usersdb
-  }
-});
-
-var dojosDB = require('knex')({
-  client: 'pg',
-  connection: {
-    host     : '127.0.0.1',
-    user     : user,
-    password : password,
-    database : dojosdb
-  }
-});
-
-var eventsDB = require('knex')({
-  client: 'pg',
-  connection: {
-    host     : '127.0.0.1',
-    user     : user,
-    password : password,
-    database : eventsdb
-  }
-});
-
-var usersClient = new pg.Client({
-  database: usersdb,
-  user: user,
-  password: password
-});
-var dojosClient = new pg.Client({
-  database: dojosdb,
-  user: user,
-  password: password
-});
-var eventsClient = new pg.Client({
-  database: eventsdb,
-  user: user,
-  password: password
-});
 
 // Set up file output
 var filename = date.format("YYYY-MM-DD") + '-stats.txt';
@@ -154,9 +114,6 @@ if (getDojos) {
     promiseChain = promiseChain.then(getDojoAndChampionEmails(null, excludedCountries));
   }
 }
-promiseChain = promiseChain.then(disconnectFromClient(usersClient));
-promiseChain = promiseChain.then(disconnectFromClient(dojosClient));
-promiseChain = promiseChain.then(disconnectFromClient(eventsClient));
 
 if (getStats) {
   console.log('Creating ' + filename);
@@ -177,10 +134,33 @@ if (getStats) {
     .then(NumberOfDojosWithEventsWithAtLeastOneAttendant)
     .then(NumberOfDojosWithEventsWithAtLeastOneAttendantWhoCheckedIn);
 }
-promiseChain.then(function() {
-  console.log('Stats finished');
-  process.exit();
-});
+
+console.log('getRegularStats', getRegularStats);
+if (getRegularStats) {
+  console.log('Creating ' + filename);
+  var ctx = {
+    // Config
+    db: pgCD,
+    monthAgo: monthAgo,
+    filename: filename,
+    output: true // Means those one get exported to file, default false to allow chaining of stats
+  };
+  fs.appendFileSync(filename, date.format("YYYY-MM-DD") +'\n');
+  var regularsStats = require('./lib/regular')();
+  _.each(_.keys(regularsStats), function (statFn, key) {
+    promiseChain.then(regularsStats[statFn].bind(ctx));
+  });
+}
+promiseChain = promiseChain.then(disconnectFromClient(usersClient));
+promiseChain = promiseChain.then(disconnectFromClient(dojosClient));
+promiseChain = promiseChain.then(disconnectFromClient(eventsClient));
+
+// promiseChain.finally(function() {
+//   console.log('Stats finished');
+//   process.exit();
+// });
+
+
 
 function connectToClient(client) {
   return function () {
@@ -237,7 +217,7 @@ function activeDojoChampions() {
 function getO13EmailsPerCountry (countryCode) {
   console.log(arguments.callee.name);
   return function () {
-    return userDB.select('email', 'name').from('cd_profiles').whereRaw('user_type::text LIKE \'%o13%\' AND email IS NOT NULL AND alpha2 =\'' + countryCode+'\'')
+    return usersDB.select('email', 'name').from('cd_profiles').whereRaw('user_type::text LIKE \'%o13%\' AND email IS NOT NULL AND alpha2 =\'' + countryCode+'\'')
       .then(function(o13Profiles){
         if (o13Profiles.length > 0){
           var csv = json2csv({ data: o13Profiles });
@@ -255,7 +235,7 @@ function getO13EmailsPerCountry (countryCode) {
 
 function getUsersEmailByOldUserType (userType) {
   console.log(arguments.callee.name);
-  userDB.select('user_id', 'email', 'name', 'user_type').from('cd_profiles').whereRaw('user_type LIKE \'%'+ userType +'%\'')
+  usersDB.select('user_id', 'email', 'name', 'user_type').from('cd_profiles').whereRaw('user_type LIKE \'%'+ userType +'%\'')
     .then(function (legacyUsers){
       console.log('legacyUsers', legacyUsers.length);
       return new Promise( function(resolve, reject) {
@@ -297,7 +277,7 @@ function getChampionsEmailFrom (countryCode) {
   function (err, res) {
     var champions = _.map(res.rows, 'user_id');
     console.log(champions);
-    userDB.select('email', 'name').from('cd_profiles').whereIn('user_id', champions)
+    usersDB.select('email', 'name').from('cd_profiles').whereIn('user_id', champions)
       .then(function(championsProfiles){
         console.log(championsProfiles);
         var csv = json2csv({ data: championsProfiles });
@@ -315,7 +295,7 @@ function getEveryNonChampionUsersEmailWithNewsletter () {
   console.log(arguments.callee.name);
   return dojosDB.select('user_id').from('cd_usersdojos').whereRaw('array_to_string(user_types, \',\') LIKE \'%champion%\'')
   .then(function (res) {
-    return userDB.select('email', 'name', 'init_user_type', 'mailing_list').from('sys_user')
+    return usersDB.select('email', 'name', 'init_user_type', 'mailing_list').from('sys_user')
     .whereNotIn('id', _.map(res, 'user_id')).andWhere('mailing_list', 1).andWhereRaw('init_user_type::text NOT LIKE \'%attendee%\'')
     .then( function (users) {
       console.log(users.length);
@@ -361,11 +341,11 @@ function getUserEmailWithNewsletter(userType, countryCode, excludedCountries) {
         function (err, res) {
           if (res && res.rows.length > 0) {
             var champions = _.map(res.rows, 'user_id');
-            return userDB.select('sys_user.email', 'sys_user.name', 'sys_user.mailing_list', 'cd_profiles.alpha2').from('sys_user').join('cd_profiles', 'sys_user.id', '=', 'cd_profiles.user_id').whereIn('sys_user.id', champions).andWhere('sys_user.mailing_list', 1)
+            return usersDB.select('sys_user.email', 'sys_user.name', 'sys_user.mailing_list', 'cd_profiles.alpha2').from('sys_user').join('cd_profiles', 'sys_user.id', '=', 'cd_profiles.user_id').whereIn('sys_user.id', champions).andWhere('sys_user.mailing_list', 1)
               .then(function (championsProfiles) {
                 if (includeNonDojoMembers) {
                   return new Promise(function (resolve, reject) {
-                    userDB.select('sys_user.email', 'sys_user.name', 'sys_user.mailing_list', 'cd_profiles.alpha2')
+                    usersDB.select('sys_user.email', 'sys_user.name', 'sys_user.mailing_list', 'cd_profiles.alpha2')
                       .from('sys_user')
                       .join('cd_profiles', 'sys_user.id', '=', 'cd_profiles.user_id')
                       .where('sys_user.init_user_type', 'like', '%' + userType + '%')
@@ -429,9 +409,9 @@ function getDojoAndChampionEmails (countryCode) {
                     usersDojos.forEach(function (usersDojo) {
                       selectChain.push(function () {
                         return new Promise(function (resolve, reject) {
-                          userDB.select('name', 'email').from('cd_profiles').where('user_id', '=', usersDojo.user_id)
+                          usersDB.select('name', 'email').from('cd_profiles').where('user_id', '=', usersDojo.user_id)
                             .then(function(users) {
-                              users.forEach(function (user) { 
+                              users.forEach(function (user) {
                                 user.dojoName = usersDojo.name;
                                 user.dojoEmail = usersDojo.email;
                                 user.country = usersDojo.alpha2;
@@ -484,7 +464,7 @@ function getChampionPhonesForPolledDojos () {
   ' WHERE array_to_string(user_types, \',\') LIKE \'%champion%\' AND d.verified = 1 AND d.deleted = 0 and d.stage != 4', [],
   function (err, res) {
     var champions = _.map(res.rows, 'user_id');
-    return userDB.select('phone', 'name').from('cd_profiles').whereIn('user_id', champions).andWhereRaw('phone IS NOT NULL AND phone != \'\'')
+    return usersDB.select('phone', 'name').from('cd_profiles').whereIn('user_id', champions).andWhereRaw('phone IS NOT NULL AND phone != \'\'')
       .then(function(championsProfiles){
         console.log('count', championsProfiles.length);
         return Promise.resolve();
@@ -586,7 +566,7 @@ function activeDojos() {
 function numberUsers(type) {
   console.log(arguments.callee.name);
   if(_.isUndefined(type)) {
-    return userDB('sys_user').count('*').then( function (rows) {
+    return usersDB('sys_user').count('*').then( function (rows) {
       fs.appendFileSync(filename, '\nCount of All Users: ' + rows[0].count + '\n');
       return Promise.resolve();
     }).catch(function(error) {
@@ -771,7 +751,7 @@ function regularEvents () {
 function newUsers () {
   console.log(arguments.callee.name);
   var o13male = 0, o13female = 0, o13undisclosed = 0, u13undisclosed = 0, u13male = 0, u13female = 0, adults = [], o13 = [], u13 = [];
-  return userDB('sys_user').select('init_user_type', 'id').where('when', '>', monthAgo.format("YYYY-MM-DD HH:mm:ss")).then( function (rows) {
+  return usersDB('sys_user').select('init_user_type', 'id').where('when', '>', monthAgo.format("YYYY-MM-DD HH:mm:ss")).then( function (rows) {
     for (var i in rows) {
       if ( _.includes(rows[i].init_user_type, 'attendee-o13')) {
         o13.push(rows[i].id);
@@ -781,7 +761,7 @@ function newUsers () {
         adults.push(rows[i].id);
       }
     }
-    return userDB('cd_profiles').select('user_id', 'gender').then( function (rows) {
+    return usersDB('cd_profiles').select('user_id', 'gender').then( function (rows) {
       for (var i in o13) {
         for (var j = 0; j< rows.length; j++) {
           if (_.includes(rows[j], o13[i]) && _.includes(rows[j], 'Male')) {
@@ -829,7 +809,7 @@ function newUsers () {
 function totalUsers () {
   console.log(arguments.callee.name);
   var o13male = 0, o13female = 0, o13undisclosed = 0, u13undisclosed = 0, u13male = 0, u13female = 0, adults = [], o13 = [], u13 = [];
-  return userDB('sys_user').select('init_user_type', 'id').then( function (rows) {
+  return usersDB('sys_user').select('init_user_type', 'id').then( function (rows) {
     for (var i in rows) {
       if ( _.includes(rows[i].init_user_type, 'attendee-o13')) {
         o13.push(rows[i].id);
@@ -839,7 +819,7 @@ function totalUsers () {
         adults.push(rows[i].id);
       }
     }
-    return userDB('cd_profiles').select('user_id', 'gender').then( function (rows) {
+    return usersDB('cd_profiles').select('user_id', 'gender').then( function (rows) {
       for (var i in o13) {
         for (var j = 0; j< rows.length; j++) {
           if (_.includes(rows[j], o13[i]) && _.includes(rows[j], 'Male')) {
