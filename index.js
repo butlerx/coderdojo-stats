@@ -24,6 +24,7 @@ program
   .option('--include-non-dojo-members', 'Include emails of those not a member of a dojo in email dump')
   .option('--countries <items>', 'Comma separated list of country alpha2 codes', function (val) { return val.split(','); })
   .option('--excluded-countries <items>', 'Comma separated list of country alpha2 codes to be excluded', function (val) { return val.split(','); })
+  .option('--address <address>', 'A partial address to match across the address and city fields')
   .option('--usersdb', 'Database name for users database')
   .option('--dojosdb', 'Database name for dojos database')
   .option('--eventsdb', 'Database name for events database')
@@ -47,6 +48,7 @@ var getDojos = program.getDojos || false;
 var includeNonDojoMembers = program.includeNonDojoMembers || false;
 var countries = program.countries || [];
 var excludedCountries = program.excludedCountries || [];
+var address = program.address;
 
 if (!getStats && !getChampions && !getMentors && !getParents && !getO13s && !getDojos) {
   program.outputHelp();
@@ -414,12 +416,15 @@ function getDojoAndChampionEmails (countryCode) {
       if (countryCode) {
         promiseChain.andWhere('alpha2', '=', countryCode);
       }
+      if (address) {
+        promiseChain.andWhereRaw("(address1 ILIKE '%" + address + "%' OR place->>'toponymname' ILIKE '%" + address + "%' OR place->>'nameWithHierarchy' ILIKE '%" + address + "%')");
+      }
       promiseChain.then(function (dojos) {
           var dojoMap = {};
           return new Promise(function (resolve2, reject2) {
             var dojosSelectChain = [];
             dojos.forEach(function (dojo) {
-              dojosSelectChain.push(dojosDB.select('user_id', 'name', 'email', 'alpha2', 'user_types').from('cd_usersdojos').join('cd_dojos', 'cd_usersdojos.dojo_id', '=', 'cd_dojos.id').where('dojo_id', '=', dojo.id));
+              dojosSelectChain.push(dojosDB.select('user_id', 'name', 'email', 'alpha2', 'address1', 'place', 'user_types').from('cd_usersdojos').join('cd_dojos', 'cd_usersdojos.dojo_id', '=', 'cd_dojos.id').where('dojo_id', '=', dojo.id));
             });
             Promise.all(dojosSelectChain)
               .then(function (results) {
@@ -435,6 +440,8 @@ function getDojoAndChampionEmails (countryCode) {
                                 user.dojoName = usersDojo.name;
                                 user.dojoEmail = usersDojo.email;
                                 user.country = usersDojo.alpha2;
+                                user.address = usersDojo.address1,
+                                user.place = usersDojo.place,
                                 user.userTypes = usersDojo.user_types;
                               });
                               resolve(users);
@@ -452,6 +459,8 @@ function getDojoAndChampionEmails (countryCode) {
                             championEmail: users[0].email,
                             dojoName: users[0].dojoName,
                             dojoEmail: users[0].dojoEmail,
+                            address: users[0].address,
+                            place: users[0].place,
                             country: users[0].country,
                             userTypes: JSON.stringify(users[0].userTypes)
                           });
