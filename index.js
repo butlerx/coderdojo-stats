@@ -20,6 +20,7 @@ program
   .option('--include-non-dojo-members', 'Include emails of those not a member of a dojo in email dump')
   .option('--countries <items>', 'Comma separated list of country alpha2 codes', function (val) { return val.split(','); })
   .option('--excluded-countries <items>', 'Comma separated list of country alpha2 codes to be excluded', function (val) { return val.split(','); })
+  .option('--address <address>', 'A partial address to match across the address and city fields')
   .option('--usersdb', 'Database name for users database')
   .option('--dojosdb', 'Database name for dojos database')
   .option('--eventsdb', 'Database name for events database')
@@ -57,6 +58,7 @@ const eventsClient = pgCD.eventsClient;
 const dojosClient = pgCD.dojosClient;
 
 if (!getStats && !getRegularStats && !getChampions && !getMentors && !getParents && !getO13s && !getDojos) {
+>>>>>>> db/master
   program.outputHelp();
   process.exit(1);
 }
@@ -396,6 +398,9 @@ function getDojoAndChampionEmails (countryCode) {
       if (countryCode) {
         promiseChain.andWhere('alpha2', '=', countryCode);
       }
+      if (address) {
+        promiseChain.andWhereRaw("(address1 ILIKE '%" + address + "%' OR place->>'toponymname' ILIKE '%" + address + "%' OR place->>'nameWithHierarchy' ILIKE '%" + address + "%')");
+      }
       promiseChain.then(function (dojos) {
         return new Promise(function (resolve2, reject2) {
           const dojosSelectChain = [];
@@ -416,6 +421,8 @@ function getDojoAndChampionEmails (countryCode) {
                                 user.dojoName = usersDojo.name;
                                 user.dojoEmail = usersDojo.email;
                                 user.country = usersDojo.alpha2;
+                                user.address = usersDojo.address1,
+                                user.place = usersDojo.place,
                                 user.userTypes = usersDojo.user_types;
                               });
                               resolve(users);
