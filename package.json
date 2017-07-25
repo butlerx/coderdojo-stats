@@ -6,7 +6,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "lint": "eslint .",
-    "fix": "eslint . --fix"
+    "fix": "eslint . --fix",
+    "build": "babel src --source-maps --out-dir lib",
+    "build:watch": "babel src --watch --source-maps --out-dir lib"
   },
   "author": "",
   "license": "ISC",
@@ -20,9 +22,22 @@
     "pg": "^6.0.1"
   },
   "devDependencies": {
-    "eslint": "3.16.1",
-    "eslint-config-standard": "6.2.1",
+    "babel-cli": "6.24.1",
+    "babel-core": "6.25.0",
+    "babel-eslint": "7.2.3",
+    "babel-plugin-add-module-exports": "0.2.1",
+    "babel-plugin-es6-promise": "1.1.1",
+    "babel-plugin-syntax-async-functions": "6.13.0",
+    "babel-plugin-transform-async-to-generator": "6.24.1",
+    "babel-plugin-transform-object-assign": "6.22.0",
+    "babel-preset-es2015": "6.24.1",
+    "es6-promise": "^4.1.1",
+    "eslint": "4.3.0",
+    "eslint-config-standard": "10.2.1",
+    "eslint-plugin-import": "^2.7.0",
+    "eslint-plugin-node": "^5.1.1",
     "eslint-plugin-promise": "3.5.0",
-    "eslint-plugin-standard": "2.1.0"
+    "eslint-plugin-react": "7.1.0",
+    "eslint-plugin-standard": "3.0.1"
   }
 }

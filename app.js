@@ -149,83 +149,94 @@ usersClient.connect(err => {
 
 // Functions for stats
 function activeDojoChampions (...args) {
-  console.log(args.callee.name);
   return new Promise((resolve, reject) => {
-    usersClient.query(`SELECT id from sys_user WHERE init_user_type LIKE '%champion%' AND sys_user.when>= now() - interval '${interval} days' AND sys_user.when<= now();`, [], (
-      err,
-      { rows }
-    ) => {
-      if (err) throw err;
-      const promises = [];
-      for (let i = 0; i < rows.length; i++) {
-        promises.push(userChampForVerifiedDojo(rows[i].id));
-      }
-      Promise.all(promises).then(
-        values => {
-          let usersInVerifiedDojos = 0;
-          values.forEach(val => {
-            if (val === true) usersInVerifiedDojos++;
-          });
-          fs.appendFileSync(filename, `\nnew champions with registed dojos: ${usersInVerifiedDojos}\n`);
-          resolve();
-        },
-        reason => {
-          reject(reason);
+    usersClient.query(
+      `SELECT id from sys_user WHERE init_user_type LIKE '%champion%' AND sys_user.when>= now() - interval '${interval} days' AND sys_user.when<= now();`,
+      [],
+      (err, { rows }) => {
+        if (err) throw err;
+        const promises = [];
+        for (let i = 0; i < rows.length; i++) {
+          promises.push(userChampForVerifiedDojo(rows[i].id));
         }
-      );
-    });
+        Promise.all(promises).then(
+          values => {
+            let usersInVerifiedDojos = 0;
+            values.forEach(val => {
+              if (val === true) usersInVerifiedDojos++;
+            });
+            fs.appendFileSync(filename, `\nnew champions with registed dojos: ${usersInVerifiedDojos}\n`);
+            resolve();
+          },
+          reason => {
+            reject(reason);
+          }
+        );
+      }
+    );
   });
 }
 
 function getO13EmailsPerCountry (countryCode) {
-  return userDB.select('email', 'name').from('cd_profiles').whereRaw(`user_type::text LIKE '%o13%' AND email IS NOT NULL AND alpha2 ='${countryCode}'`).then(o13Profiles => {
-    if (o13Profiles.length > 0) {
-      const csv = json2csv({ data: o13Profiles });
-      fs.writeFile(`o13From${countryCode}.csv`, csv, err => {
-        if (err) throw err;
-        console.log('file saved');
+  return userDB
+    .select('email', 'name')
+    .from('cd_profiles')
+    .whereRaw(`user_type::text LIKE '%o13%' AND email IS NOT NULL AND alpha2 ='${countryCode}'`)
+    .then(o13Profiles => {
+      if (o13Profiles.length > 0) {
+        const csv = json2csv({ data: o13Profiles });
+        fs.writeFile(`o13From${countryCode}.csv`, csv, err => {
+          if (err) throw err;
+          console.log('file saved');
+          return Promise.resolve();
+        });
+      } else {
         return Promise.resolve();
-      });
-    } else {
-      return Promise.resolve();
-    }
-  });
+      }
+    });
 }
 
 function getUsersEmailByOldUserType (userType) {
-  userDB.select('user_id', 'email', 'name', 'user_type').from('cd_profiles').whereRaw(`user_type LIKE '%${userType}%'`).then(legacyUsers => {
-    console.log('legacyUsers', legacyUsers.length);
-    return new Promise((resolve, reject) => {
-      dojosClient.query(
-        'SELECT user_id FROM cd_usersdojos ud INNER JOIN cd_dojos d ON ud.dojo_id = d.id ' +
-          " WHERE ( array_to_string(user_types, ',') LIKE '%champion%' OR array_to_string(user_types, ',')  LIKE '%mentor%' )",
-        [],
-        (err, users) => {
-          if (err) throw err;
-          if (users && users.rows.length > 0) {
-            console.log('users', users.rows.length);
-            const filteredUsers = _.filter(legacyUsers, (
-                { user_id } // console.log(!_.find(users.rows, {user_id: e.user_id}));
-              ) => !_.find(users.rows, { user_id }));
-            console.log('filteredUsers1', filteredUsers.length, _.last(filteredUsers));
-            return resolve(filteredUsers);
-          } else {
-            return resolve();
+  userDB
+    .select('user_id', 'email', 'name', 'user_type')
+    .from('cd_profiles')
+    .whereRaw(`user_type LIKE '%${userType}%'`)
+    .then(legacyUsers => {
+      console.log('legacyUsers', legacyUsers.length);
+      return new Promise((resolve, reject) => {
+        dojosClient.query(
+          'SELECT user_id FROM cd_usersdojos ud INNER JOIN cd_dojos d ON ud.dojo_id = d.id ' +
+            " WHERE ( array_to_string(user_types, ',') LIKE '%champion%' OR array_to_string(user_types, ',')  LIKE '%mentor%' )",
+          [],
+          (err, users) => {
+            if (err) throw err;
+            if (users && users.rows.length > 0) {
+              console.log('users', users.rows.length);
+              const filteredUsers = _.filter(
+                legacyUsers,
+                (
+                  { user_id } // console.log(!_.find(users.rows, {user_id: e.user_id}));
+                ) => !_.find(users.rows, { user_id })
+              );
+              console.log('filteredUsers1', filteredUsers.length, _.last(filteredUsers));
+              return resolve(filteredUsers);
+            } else {
+              return resolve();
+            }
           }
+        );
+      }).then(filteredUsers => {
+        console.log('filteredUsers2', filteredUsers.length);
+        if (filteredUsers && filteredUsers.length > 0) {
+          const csv = json2csv({ data: filteredUsers });
+          fs.writeFile(`legacy${userType}.csv`, csv, err => {
+            if (err) throw err;
+            console.log('file saved');
+          });
         }
-      );
-    }).then(filteredUsers => {
-      console.log('filteredUsers2', filteredUsers.length);
-      if (filteredUsers && filteredUsers.length > 0) {
-        const csv = json2csv({ data: filteredUsers });
-        fs.writeFile(`legacy${userType}.csv`, csv, err => {
-          if (err) throw err;
-          console.log('file saved');
-        });
-      }
-      return Promise.resolve();
+        return Promise.resolve();
+      });
     });
-  });
 }
 
 function getChampionsEmailFrom (countryCode) {
@@ -252,44 +263,51 @@ function getChampionsEmailFrom (countryCode) {
 }
 
 function getEveryNonChampionUsersEmailWithNewsletter (...args) {
-  console.log(args.callee.name);
-  return dojosDB.select('user_id').from('cd_usersdojos').whereRaw("array_to_string(user_types, ',') LIKE '%champion%'").then(res =>
-    userDB
-      .select('email', 'name', 'init_user_type', 'mailing_list')
-      .from('sys_user')
-      .whereNotIn('id', _.map(res, 'user_id'))
-      .andWhere('mailing_list', 1)
-      .andWhereRaw("init_user_type::text NOT LIKE '%attendee%'")
-      .then(users => {
-        console.log(users.length);
-        const csv = json2csv({ data: users });
-        return fs.writeFile('usersNewsletter.csv', csv, err => {
-          if (err) throw err;
-          console.log('file saved');
-        });
-      }));
+  return dojosDB
+    .select('user_id')
+    .from('cd_usersdojos')
+    .whereRaw("array_to_string(user_types, ',') LIKE '%champion%'")
+    .then(res =>
+      userDB
+        .select('email', 'name', 'init_user_type', 'mailing_list')
+        .from('sys_user')
+        .whereNotIn('id', _.map(res, 'user_id'))
+        .andWhere('mailing_list', 1)
+        .andWhereRaw("init_user_type::text NOT LIKE '%attendee%'")
+        .then(users => {
+          console.log(users.length);
+          const csv = json2csv({ data: users });
+          return fs.writeFile('usersNewsletter.csv', csv, err => {
+            if (err) throw err;
+            console.log('file saved');
+          });
+        })
+    );
 }
 
 function getChampionsEmailWithNewsletter (countryCode) {
-  console.log(arguments.callee.name);
-  let query = 'SELECT user_id FROM cd_usersdojos ud INNER JOIN cd_dojos d ON ud.dojo_id = d.id ' +
+  let query =
+    'SELECT user_id FROM cd_usersdojos ud INNER JOIN cd_dojos d ON ud.dojo_id = d.id ' +
     " WHERE ( array_to_string(user_types, ',') LIKE '%champion%' OR array_to_string(user_types, ',')  LIKE '%mentor%' )";
   if (countryCode) query += ` AND alpha2 = '${countryCode}'`; // God this is ugly
   return new Promise((resolve, reject) => {
-    dojosClient.query(query, [], function (err, res) {
-      console.log(arguments.callee.name, countryCode, err);
+    dojosClient.query(query, [], (err, res) => {
       if (res && res.rows.length > 0) {
-        console.log(arguments.callee.name, res.rows.length, countryCode);
         const champions = _.map(res.rows, 'user_id');
         console.log(champions.length);
-        return userDB.select('email', 'name', 'mailing_list').from('sys_user').whereIn('id', champions).andWhere('mailing_list', 1).then(championsProfiles => {
-          const csv = json2csv({ data: championsProfiles });
-          fs.writeFile(`champions${countryCode}Newsletter.csv`, csv, err => {
-            if (err) throw err;
-            console.log('file saved');
-            return resolve();
+        return userDB
+          .select('email', 'name', 'mailing_list')
+          .from('sys_user')
+          .whereIn('id', champions)
+          .andWhere('mailing_list', 1)
+          .then(championsProfiles => {
+            const csv = json2csv({ data: championsProfiles });
+            fs.writeFile(`champions${countryCode}Newsletter.csv`, csv, err => {
+              if (err) throw err;
+              console.log('file saved');
+              return resolve();
+            });
           });
-        });
       } else {
         return resolve();
       }
@@ -298,7 +316,6 @@ function getChampionsEmailWithNewsletter (countryCode) {
 }
 
 function getChampionPhonesForPolledDojos (...args) {
-  console.log(args.callee.name);
   return dojosClient.query(
     'SELECT user_id FROM cd_usersdojos ud INNER JOIN cd_dojos d ON ud.dojo_id = d.id ' +
       " WHERE array_to_string(user_types, ',') LIKE '%champion%' AND d.verified = 1 AND d.deleted = 0 and d.stage != 4",
@@ -306,246 +323,266 @@ function getChampionPhonesForPolledDojos (...args) {
     (err, { rows }) => {
       if (err) throw err;
       const champions = _.map(rows, 'user_id');
-      return userDB.select('phone', 'name').from('cd_profiles').whereIn('user_id', champions).andWhereRaw("phone IS NOT NULL AND phone != ''").then(({ length }) => {
-        console.log('count', length);
-        return Promise.resolve();
-      });
+      return userDB
+        .select('phone', 'name')
+        .from('cd_profiles')
+        .whereIn('user_id', champions)
+        .andWhereRaw("phone IS NOT NULL AND phone != ''")
+        .then(({ length }) => {
+          console.log('count', length);
+          return Promise.resolve();
+        });
     }
   );
 }
 
 function getDojosFrom (countryCodes) {
-  console.log(arguments.callee.name);
   return dojosDB.select('email', 'name').from('cd_dojos').whereIn('alpha2', countryCodes).then(dojos => {
     const csv = json2csv({ data: dojos });
-    fs.writeFile(`dojosFrom${countryCodes}.csv`, csv, err => {
-      if (err) throw err;
-      console.log('file saved');
-    })
-    .then(() => Promise.resolve());
+    fs
+      .writeFile(`dojosFrom${countryCodes}.csv`, csv, err => {
+        if (err) throw err;
+        console.log('file saved');
+      })
+      .then(() => Promise.resolve());
   });
 }
 
-function userChampForVerifiedDojo (userId) {
-  console.log(arguments.callee.name);
-  return new Promise((resolve, reject) => {
-    dojosClient.query("SELECT dojo_id FROM cd_usersdojos WHERE user_id=$1 AND array_to_string(user_types, ',') LIKE '%champion%'", [userId], (err, { rows }) => {
-      if (err) reject(err);
-      const promises = [];
-      for (let i = 0; i < rows.length; i++) {
-        promises.push(dojoVerified(rows[i].dojo_id));
-      }
-      Promise.all(promises).then(
-        values => {
-          resolve(values.indexOf(true) !== -1);
-        },
-        reason => {
-          reject(reason);
-        }
-      );
-    });
-  });
-}
-
-function activeDojosByRecentEvents( ){
-  return eventsDB('cd_applications').select('id', 'event_id', 'attendance')
-  .whereRaw('ticket_type::text LIKE \'ninja\' AND attendance IS NOT NULL')
-  .then(function(events){
-    var validEvents = _.filter(events, function(event){
-      var date = new Date();
-      var latestDate = event.attendance[0];
-      // Seems like attendances are not ordered
-      _.each(event.attendance, function(attendanceDate){
-        if(attendanceDate > latestDate) {
-          latestDate = attendanceDate;
-        }
-      });
-      if (latestDate > new Date(2016, 1, 1)) {
-        return true;
-      }
-      return false;
-    });
-    return eventsDB('cd_applications').select('event_id').count('*')
-      .whereIn('id', _.map(validEvents,'id'))
-      .groupByRaw('event_id').havingRaw('count(*) > 1');
-  })
-  .then(function(validEvents){
-    return eventsDB('cd_events').select('dojo_id').count('*').whereIn('id', _.map(validEvents,'event_id')).groupByRaw('dojo_id').havingRaw('count(*) > 2');
-  })
-  .then(function(dojos){
-    return dojosDB('cd_dojos').select('id').whereIn('id', _.map(dojos, 'dojo_id'));
-  })
-  .then(function(dojos){
-    return Promise.resolve(dojos);
-  });
-}
-
-function activeDojoMentorsOverLastMonths() {
-  return dojosDB('cd_usersdojos').select('user_id').distinct('dojo_id').whereRaw('user_types::text LIKE \'%mentor%\'')
-  .then(function (mentors){
-      return userDB('sys_user').select('id').whereRaw('sys_user.last_login>=  now() - interval \'12 months\' AND sys_user.when > \'2016-01-01\'').whereIn('id', _.map(mentors, 'user_id'));
-  })
-  .then(function(mentors){
-    return dojosDB('cd_usersdojos').select('user_id').distinct('dojo_id').whereRaw('user_types::text LIKE \'%mentor%\'')
-    .whereIn('user_id', _.map(mentors, 'id'));
-  })
-  .then(function(relations) {
-    return dojosDB('cd_dojos').select('id').whereIn('id', _.map(relations, 'dojo_id')).whereRaw('stage != 4 AND verified = 1 AND deleted = 0')
-    .then(function (activeDojos){
-      return _.filter(relations, function(relation){
-        return _.map(activeDojos, 'id').indexOf(relation.dojo_id) > -1;
-      });
-    });
-  })
-  // We need to do it this way to ensure that we check for every champion of every dojos when there is multi champs/dojo
-  .then( function(relations){
-    var dojos = _.uniq(_.map(relations,'dojo_id'));
-    var mentors = _.uniq(_.map(relations,'user_id'));
-    console.log('Active mentors', dojos.length, mentors.length, relations.length);
-    return Promise.resolve(dojos);
-  });
-}
-
-function activeDojoChampionsOverLastMonths() {
-  return dojosDB('cd_usersdojos').select('user_id').distinct('dojo_id').whereRaw('user_types::text LIKE \'%champion%\' OR user_permissions::text LIKE \'%dojo-admin%\'').then(
-    function (champions){
-      return userDB('sys_user').select('id').whereRaw('sys_user.last_login>=  now() - interval \'12 months\' AND sys_user.when > \'2016-01-01\'').whereIn('id', _.map(champions, 'user_id'));
-  })
-  .then(function(champions){
-    return dojosDB('cd_usersdojos').select('user_id').distinct('dojo_id').whereRaw('user_types::text LIKE \'%champion%\'').whereIn('user_id', _.map(champions, 'id'))
-    .then(function(relations){
-      return dojosDB('cd_dojos').select('id').whereIn('id', _.map(relations, 'dojo_id')).whereRaw('stage != 4 AND verified = 1 AND deleted = 0')
-      .then(function (activeDojos){
-        return _.filter(relations, function(relation){
-          return _.map(activeDojos, 'id').indexOf(relation.dojo_id) > -1;
+function activeDojosByRecentEvents () {
+  return eventsDB('cd_applications')
+    .select('id', 'event_id', 'attendance')
+    .whereRaw("ticket_type::text LIKE 'ninja' AND attendance IS NOT NULL")
+    .then(events => {
+      const validEvents = _.filter(events, ({ attendance }) => {
+        const date = new Date();
+        let latestDate = attendance[0];
+        // Seems like attendances are not ordered
+        _.each(attendance, attendanceDate => {
+          if (attendanceDate > latestDate) {
+            latestDate = attendanceDate;
+          }
         });
+        if (latestDate > new Date(2016, 1, 1)) {
+          return true;
+        }
+        return false;
       });
-    });
-  })
-  // We need to do it this way to ensure that we check for every champion of every dojos when there is multi champs/dojo
-  .then( function(relations){
-    var dojos = _.uniq(_.map(relations,'dojo_id'));
-    var champions = _.uniq(_.map(relations,'user_id'));
-    console.log('Active champions', dojos.length, relations.length, champions.length);
-    return Promise.resolve(dojos);
-  });
+      return eventsDB('cd_applications')
+        .select('event_id')
+        .count('*')
+        .whereIn('id', _.map(validEvents, 'id'))
+        .groupByRaw('event_id')
+        .havingRaw('count(*) > 1');
+    })
+    .then(validEvents =>
+      eventsDB('cd_events')
+        .select('dojo_id')
+        .count('*')
+        .whereIn('id', _.map(validEvents, 'event_id'))
+        .groupByRaw('dojo_id')
+        .havingRaw('count(*) > 2')
+    )
+    .then(dojos => dojosDB('cd_dojos').select('id').whereIn('id', _.map(dojos, 'dojo_id')))
+    .then(dojos => Promise.resolve(dojos));
+}
+
+function activeDojoMentorsOverLastMonths () {
+  return (
+    dojosDB('cd_usersdojos')
+      .select('user_id')
+      .distinct('dojo_id')
+      .whereRaw("user_types::text LIKE '%mentor%'")
+      .then(mentors =>
+        userDB('sys_user')
+          .select('id')
+          .whereRaw("sys_user.last_login>=  now() - interval '12 months' AND sys_user.when > '2016-01-01'")
+          .whereIn('id', _.map(mentors, 'user_id'))
+      )
+      .then(mentors =>
+        dojosDB('cd_usersdojos')
+          .select('user_id')
+          .distinct('dojo_id')
+          .whereRaw("user_types::text LIKE '%mentor%'")
+          .whereIn('user_id', _.map(mentors, 'id'))
+      )
+      .then(relations =>
+        dojosDB('cd_dojos')
+          .select('id')
+          .whereIn('id', _.map(relations, 'dojo_id'))
+          .whereRaw('stage != 4 AND verified = 1 AND deleted = 0')
+          .then(activeDojos => _.filter(relations, ({ dojo_id }) => _.map(activeDojos, 'id').indexOf(dojo_id) > -1))
+      )
+      // We need to do it this way to ensure that we check for every champion of every dojos when there is multi champs/dojo
+      .then(relations => {
+        const dojos = _.uniq(_.map(relations, 'dojo_id'));
+        const mentors = _.uniq(_.map(relations, 'user_id'));
+        console.log('Active mentors', dojos.length, mentors.length, relations.length);
+        return Promise.resolve(dojos);
+      })
+  );
+}
+
+function activeDojoChampionsOverLastMonths () {
+  return (
+    dojosDB('cd_usersdojos')
+      .select('user_id')
+      .distinct('dojo_id')
+      .whereRaw("user_types::text LIKE '%champion%' OR user_permissions::text LIKE '%dojo-admin%'")
+      .then(champions =>
+        userDB('sys_user')
+          .select('id')
+          .whereRaw("sys_user.last_login>=  now() - interval '12 months' AND sys_user.when > '2016-01-01'")
+          .whereIn('id', _.map(champions, 'user_id'))
+      )
+      .then(champions =>
+        dojosDB('cd_usersdojos')
+          .select('user_id')
+          .distinct('dojo_id')
+          .whereRaw("user_types::text LIKE '%champion%'")
+          .whereIn('user_id', _.map(champions, 'id'))
+          .then(relations =>
+            dojosDB('cd_dojos')
+              .select('id')
+              .whereIn('id', _.map(relations, 'dojo_id'))
+              .whereRaw('stage != 4 AND verified = 1 AND deleted = 0')
+              .then(activeDojos => _.filter(relations, ({ dojo_id }) => _.map(activeDojos, 'id').indexOf(dojo_id) > -1))
+          )
+      )
+      // We need to do it this way to ensure that we check for every champion of every dojos when there is multi champs/dojo
+      .then(relations => {
+        const dojos = _.uniq(_.map(relations, 'dojo_id'));
+        const champions = _.uniq(_.map(relations, 'user_id'));
+        console.log('Active champions', dojos.length, relations.length, champions.length);
+        return Promise.resolve(dojos);
+      })
+  );
 }
 
 function PMBOPartlyFunctionalDojo () {
-  var dojos = [];
+  let dojos = [];
   fullyActiveDojosByUser()
-  .then(function (dojosByUsers){
-    dojos = dojos.concat(dojosByUsers);
-  })
-  .then(activeDojosByRecentEvents)
-  .then(function(dojosByEvents) {
-    console.log(dojos.length, dojosByEvents.length);
-    dojos = dojos.concat(dojosByEvents);
-    dojos = _.uniq(_.map(dojos, 'id'));
-    console.log('PMBOPartlyFunctionalDojo', dojos.length);
-    return dojos;
-  });
+    .then(dojosByUsers => {
+      dojos = dojos.concat(dojosByUsers);
+    })
+    .then(activeDojosByRecentEvents)
+    .then(dojosByEvents => {
+      console.log(dojos.length, dojosByEvents.length);
+      dojos = dojos.concat(dojosByEvents);
+      dojos = _.uniq(_.map(dojos, 'id'));
+      console.log('PMBOPartlyFunctionalDojo', dojos.length);
+      return dojos;
+    });
 }
-
 
 function PMBOFullyFunctionalDojo () {
-  var dojos = [];
+  let dojos = [];
   fullyActiveDojosByUser()
-  .then(function (dojosByUsers){
-    dojos = dojos.concat(dojosByUsers);
-  })
-  .then(activeDojosByRecentEvents)
-  .then(function(dojosByEvents) {
-    console.log(dojos.length, dojosByEvents.length);
-    dojos = _.intersection(_.map(dojos, 'id'), _.map(dojosByEvents, 'id'));
-    console.log('PMBOFullyFunctionalDojo', dojos.length);
-    return dojos;
-  });
-}
-
-function fullyActiveDojosByUser() {
-  return activeDojoChampionsOverLastMonths()
-  .then(function(dojos) {
-    return dojosDB('cd_usersdojos').select('user_id').whereIn('dojo_id', dojos);
-  })
-  .then(function(userdojos) {
-    return userDB('cd_profiles').select('user_id', 'badges').whereIn('user_id', _.map(userdojos, 'user_id')).andWhereNot('badges', null);
-  })
-  .then(function(users) {
-    var badged = _.filter(users, function(user){
-      var isBadged =  _.some(user.badges, function(badge) {
-        var date = new Date();
-        if (new Date(badge.dateAccepted) > new Date(2016, 1, 1)  &&
-          !_.includes(['my-1st-dojo!','europe-code-week-2016', 'attend-5-dojo-sessions!', 'attend-10-dojo-sessions!','attend-25-dojo-sessions!','mentor-badge'], badge.slug)) {
-          return true;
-        }
-        return false;
-      });
-      return isBadged;
+    .then(dojosByUsers => {
+      dojos = dojos.concat(dojosByUsers);
+    })
+    .then(activeDojosByRecentEvents)
+    .then(dojosByEvents => {
+      console.log(dojos.length, dojosByEvents.length);
+      dojos = _.intersection(_.map(dojos, 'id'), _.map(dojosByEvents, 'id'));
+      console.log('PMBOFullyFunctionalDojo', dojos.length);
+      return dojos;
     });
-    console.log('badgedUsers', badged.length);
-    return Promise.resolve(badged);
-  })
-  .then(function(badged) {
-    return dojosDB('cd_usersdojos').select('dojo_id').whereIn('user_id', _.map(badged, 'user_id'));
-  })
-  .then(function(dojos) {
-    return dojosDB('cd_dojos').select('id').whereIn('id', _.map(dojos, 'dojo_id'));
-  })
-  .then(function(dojos) {
-    return Promise.resolve(dojos);
-  });
 }
 
-function partiallyActiveDojos() {
+function fullyActiveDojosByUser () {
   return activeDojoChampionsOverLastMonths()
-  .then(function(dojos) {
-    return dojosDB('cd_usersdojos').select('user_id').whereIn('dojo_id', dojos);
-  })
-  .then(function(userdojos) {
-    return userDB('cd_profiles').select('user_id', 'badges').whereIn('user_id', _.map(userdojos, 'user_id')).andWhereNot('badges', null);
-  })
-  .then(function(users) {
-    var badged = _.filter(users, function(user){
-      var isBadged =  _.some(user.badges, function(badge) {
-        var date = new Date();
-        // console.log(new Date(badge.dateAccepted), date.setDate(date.getDate() - 365), new Date(badge.dateAccepted) > date.setDate(date.getDate() - 365) ); // minus the date
-        if (new Date(badge.dateAccepted) > new Date(2016, 1, 1) ) {
-          return true;
-        }
-        return false;
+    .then(dojos => dojosDB('cd_usersdojos').select('user_id').whereIn('dojo_id', dojos))
+    .then(userdojos =>
+      userDB('cd_profiles')
+        .select('user_id', 'badges')
+        .whereIn('user_id', _.map(userdojos, 'user_id'))
+        .andWhereNot('badges', null)
+    )
+    .then(users => {
+      const badged = _.filter(users, ({ badges }) => {
+        const isBadged = _.some(badges, ({ dateAccepted, slug }) => {
+          const date = new Date();
+          if (
+            new Date(dateAccepted) > new Date(2016, 1, 1) &&
+            !_.includes(
+              [
+                'my-1st-dojo!',
+                'europe-code-week-2016',
+                'attend-5-dojo-sessions!',
+                'attend-10-dojo-sessions!',
+                'attend-25-dojo-sessions!',
+                'mentor-badge',
+              ],
+              slug
+            )
+          ) {
+            return true;
+          }
+          return false;
+        });
+        return isBadged;
       });
-      return isBadged;
-    });
-    console.log('badgedUsers', badged.length);
-    return Promise.resolve(badged);
-  })
-  .then(function(badged) {
-    // console.log(badged);
-    return dojosDB('cd_usersdojos').select('dojo_id').whereIn('user_id', _.map(badged, 'user_id'));
-  })
-  .then(function(dojos) {
-    console.log('dojos', _.uniq(dojos).length);
-  });
+      console.log('badgedUsers', badged.length);
+      return Promise.resolve(badged);
+    })
+    .then(badged => dojosDB('cd_usersdojos').select('dojo_id').whereIn('user_id', _.map(badged, 'user_id')))
+    .then(dojos => dojosDB('cd_dojos').select('id').whereIn('id', _.map(dojos, 'dojo_id')))
+    .then(dojos => Promise.resolve(dojos));
 }
 
-function userChampForVerifiedDojo(userId) {
-  return new Promise(function (resolve, reject) {
-    dojosClient.query('SELECT dojo_id FROM cd_usersdojos WHERE user_id=$1 AND array_to_string(user_types, \',\') LIKE \'%champion%\'', [userId], function (err, res) {
-      if (err) reject(err);
-      const promises = [];
-      for (let i = 0; i < rows.length; i++) {
-        promises.push(dojoVerified(rows[i].dojo_id));
+function partiallyActiveDojos () {
+  return activeDojoChampionsOverLastMonths()
+    .then(dojos => dojosDB('cd_usersdojos').select('user_id').whereIn('dojo_id', dojos))
+    .then(userdojos =>
+      userDB('cd_profiles')
+        .select('user_id', 'badges')
+        .whereIn('user_id', _.map(userdojos, 'user_id'))
+        .andWhereNot('badges', null)
+    )
+    .then(users => {
+      const badged = _.filter(users, ({ badges }) => {
+        const isBadged = _.some(badges, ({ dateAccepted }) => {
+          const date = new Date();
+          // console.log(new Date(badge.dateAccepted), date.setDate(date.getDate() - 365), new Date(badge.dateAccepted) > date.setDate(date.getDate() - 365) ); // minus the date
+          if (new Date(dateAccepted) > new Date(2016, 1, 1)) {
+            return true;
+          }
+          return false;
+        });
+        return isBadged;
+      });
+      console.log('badgedUsers', badged.length);
+      return Promise.resolve(badged);
+    })
+    .then((
+      badged // console.log(badged);
+    ) => dojosDB('cd_usersdojos').select('dojo_id').whereIn('user_id', _.map(badged, 'user_id')))
+    .then(dojos => {
+      console.log('dojos', _.uniq(dojos).length);
+    });
+}
+
+function userChampForVerifiedDojo (userId) {
+  return new Promise((resolve, reject) => {
+    dojosClient.query(
+      "SELECT dojo_id FROM cd_usersdojos WHERE user_id=$1 AND array_to_string(user_types, ',') LIKE '%champion%'",
+      [userId],
+      (err, { rows }) => {
+        if (err) reject(err);
+        const promises = [];
+        for (let i = 0; i < rows.length; i++) {
+          promises.push(dojoVerified(rows[i].dojo_id));
+        }
+        Promise.all(promises).then(
+          values => {
+            resolve(values.indexOf(true) !== -1);
+          },
+          reason => {
+            reject(reason);
+          }
+        );
       }
-      Promise.all(promises).then(
-        values => {
-          resolve(values.indexOf(true) !== -1);
-        },
-        reason => {
-          reject(reason);
-        }
-      );
-    });
+    );
   });
 }
 
@@ -563,7 +600,6 @@ function dojoVerified (dojoId) {
 }
 
 function activeDojos (...args) {
-  console.log(args.callee.name);
   return dojosDB('cd_dojos')
     .where({
       verified: 1,
@@ -636,7 +672,10 @@ function dojosUsingEvents () {
     .select()
     .where('created_at', '>', monthAgo.format('YYYY-MM-DD HH:mm:ss'))
     .then(({ length }) => {
-      fs.appendFileSync(filename, `\nCount of Dojos Using Events since ${monthAgo.format('YYYY-MM-DD HH:mm')}: ${length}\n`);
+      fs.appendFileSync(
+        filename,
+        `\nCount of Dojos Using Events since ${monthAgo.format('YYYY-MM-DD HH:mm')}: ${length}\n`
+      );
       return Promise.resolve();
     })
     .then(() => {
@@ -741,8 +780,9 @@ function NumberOfYouthBookedAtLeastTwice () {
 
 function NumberOfYouthBookedAndCheckedInAtLeastTwice () {
   console.log(
-    eventsDB('cd_profiles')
-      .whereIn('user_type', ['attendee-u13', 'attendee-o13'])
+    eventsDB('cd_applications')
+      .count()
+      .where('ticket_type', 'ninja')
       .andWhereRaw(eventsDB.raw('attendance IS NOT NULL'))
       .groupByRaw('user_id')
       .havingRaw('count(*) > 1')
@@ -767,31 +807,7 @@ function NumberOfYouthBookedAndCheckedInAtLeastTwice () {
     });
 }
 
-function NumberOfYouthBookedAndCheckedInAtLeastTwice () {
-  console.log(
-    eventsDB('cd_applications').count().where('ticket_type', 'ninja').andWhereRaw(eventsDB.raw('attendance IS NOT NULL')).groupByRaw('user_id').havingRaw('count(*) > 1').toSQL()
-  );
-  return eventsDB('cd_applications')
-    .count()
-    .where('ticket_type', 'ninja')
-    .andWhereRaw(eventsDB.raw('attendance IS NOT NULL'))
-    .groupByRaw('user_id')
-    .havingRaw('count(*) > 1')
-    .then(({ length }) => {
-      fs.appendFileSync(filename, `\nNumber of Youth booked and checked in at least twice${length}\n`);
-      return true;
-    })
-    .then(() => {
-      console.log('NumberOfYouthBookedAndCheckedInAtLeastTwice');
-      return Promise.resolve();
-    })
-    .catch(error => {
-      console.error(error);
-    });
-}
-
 function groupedDojosUsingEvents (...args) {
-  console.log(args.callee.name);
   fs.appendFileSync(filename, `\nNumber of events per dojos for${monthAgo.format('YYYY-MM-DD HH:mm')}\n`);
   return eventsDB('cd_events')
     .select('dojo_id', eventsDB.raw('COUNT(id) as count'))
@@ -812,7 +828,6 @@ function groupedDojosUsingEvents (...args) {
 }
 
 function recentEvents (...args) {
-  console.log(args.callee.name);
   return eventsDB('cd_events')
     .select()
     .where('created_at', '>', monthAgo.format('YYYY-MM-DD HH:mm:ss'))
@@ -826,7 +841,6 @@ function recentEvents (...args) {
 }
 
 function regularEvents (...args) {
-  console.log(args.callee.name);
   const recent = moment().week(-6);
   const recentEvents = [];
   return eventsDB('cd_events')
@@ -840,7 +854,10 @@ function regularEvents (...args) {
           }
         }
       }
-      fs.appendFileSync(filename, `\nDojos Createing events recently (in the last 6 weeks): ${_.uniq(recentEvents).length}\n`);
+      fs.appendFileSync(
+        filename,
+        `\nDojos Createing events recently (in the last 6 weeks): ${_.uniq(recentEvents).length}\n`
+      );
       return Promise.resolve();
     })
     .catch(error => {
@@ -850,7 +867,6 @@ function regularEvents (...args) {
 
 // if you want fell free to rewrite these theres too many nested for loops possibly reversing the logic would be better
 function newUsers (...args) {
-  console.log(args.callee.name);
   let o13male = 0;
   let o13female = 0;
   let o13undisclosed = 0;
@@ -884,7 +900,11 @@ function newUsers (...args) {
               } else if (_.includes(rows[j], o13[i]) && _.includes(rows[j], 'Female')) {
                 o13female++;
                 j = rows.length;
-              } else if (_.includes(rows[j], o13[i]) && !_.includes(rows[j], 'Male') && !_.includes(rows[j], 'Female')) {
+              } else if (
+                _.includes(rows[j], o13[i]) &&
+                !_.includes(rows[j], 'Male') &&
+                !_.includes(rows[j], 'Female')
+              ) {
                 o13undisclosed++;
                 j = rows.length;
               }
@@ -898,7 +918,11 @@ function newUsers (...args) {
               } else if (_.includes(rows[j], u13[i]) && _.includes(rows[j], 'Female')) {
                 u13female++;
                 j = rows.length;
-              } else if (_.includes(rows[j], u13[i]) && !_.includes(rows[j], 'Male') && !_.includes(rows[j], 'Female')) {
+              } else if (
+                _.includes(rows[j], u13[i]) &&
+                !_.includes(rows[j], 'Male') &&
+                !_.includes(rows[j], 'Female')
+              ) {
                 u13undisclosed++;
                 j = rows.length;
               }
@@ -923,7 +947,6 @@ function newUsers (...args) {
 }
 
 function totalUsers (...args) {
-  console.log(args.callee.name);
   let o13male = 0;
   let o13female = 0;
   let o13undisclosed = 0;
@@ -941,7 +964,10 @@ function totalUsers (...args) {
           o13.push(rows[i].id);
         } else if (_.includes(rows[i].init_user_type, 'attendee-u13')) {
           u13.push(rows[i].id);
-        } else if (!_.includes(rows[i].init_user_type, 'attendee-u13') && !_.includes(rows[i].init_user_type, 'attendee-o13')) {
+        } else if (
+          !_.includes(rows[i].init_user_type, 'attendee-u13') &&
+          !_.includes(rows[i].init_user_type, 'attendee-o13')
+        ) {
           adults.push(rows[i].id);
         }
       }
@@ -956,7 +982,11 @@ function totalUsers (...args) {
               } else if (_.includes(rows[j], o13[i]) && _.includes(rows[j], 'Female')) {
                 o13female++;
                 j = rows.length;
-              } else if (_.includes(rows[j], o13[i]) && !_.includes(rows[j], 'Male') && !_.includes(rows[j], 'Female')) {
+              } else if (
+                _.includes(rows[j], o13[i]) &&
+                !_.includes(rows[j], 'Male') &&
+                !_.includes(rows[j], 'Female')
+              ) {
                 o13undisclosed++;
                 j = rows.length;
               }
@@ -970,7 +1000,11 @@ function totalUsers (...args) {
               } else if (_.includes(rows[j], u13[i]) && _.includes(rows[j], 'Female')) {
                 u13female++;
                 j = rows.length;
-              } else if (_.includes(rows[j], u13[i]) && !_.includes(rows[j], 'Male') && !_.includes(rows[j], 'Female')) {
+              } else if (
+                _.includes(rows[j], u13[i]) &&
+                !_.includes(rows[j], 'Male') &&
+                !_.includes(rows[j], 'Female')
+              ) {
                 u13undisclosed++;
                 j = rows.length;
               }
@@ -995,10 +1029,15 @@ function totalUsers (...args) {
 }
 
 function averageEventCap (...args) {
-  console.log(args.callee.name);
   return eventsDB('cd_events')
     .join('cd_applications', 'cd_events.id', 'cd_applications.event_id')
-    .select('cd_applications.session_id', 'cd_events.id', 'cd_events.name', 'cd_applications.attendance', 'cd_events.dojo_id')
+    .select(
+      'cd_applications.session_id',
+      'cd_events.id',
+      'cd_events.name',
+      'cd_applications.attendance',
+      'cd_events.dojo_id'
+    )
     .where('created_at', '>', monthAgo.format('YYYY-MM-DD HH:mm:ss'))
     .then(rows => {
       let prev;
@@ -1007,15 +1046,43 @@ function averageEventCap (...args) {
       for (const i in rows) {
         if (_.isUndefined(prev)) {
           if (_.isEmpty(rows[i].attendance)) {
-            res.push({ name: rows[i].name, tickets: 1, checkin: 0, session_id: rows[i].session_id, dojo_id: rows[i].dojo_id, id: rows[i].id });
+            res.push({
+              name      : rows[i].name,
+              tickets   : 1,
+              checkin   : 0,
+              session_id: rows[i].session_id,
+              dojo_id   : rows[i].dojo_id,
+              id        : rows[i].id,
+            });
           } else {
-            res.push({ name: rows[i].name, tickets: 1, checkin: 1, session_id: rows[i].session_id, dojo_id: rows[i].dojo_id, id: rows[i].id });
+            res.push({
+              name      : rows[i].name,
+              tickets   : 1,
+              checkin   : 1,
+              session_id: rows[i].session_id,
+              dojo_id   : rows[i].dojo_id,
+              id        : rows[i].id,
+            });
           }
         } else if (rows[i].session_id !== prev.session_id) {
           if (_.isEmpty(rows[i].attendance)) {
-            res.push({ name: rows[i].name, tickets: 1, checkin: 0, session_id: rows[i].session_id, dojo_id: rows[i].dojo_id, id: rows[i].id });
+            res.push({
+              name      : rows[i].name,
+              tickets   : 1,
+              checkin   : 0,
+              session_id: rows[i].session_id,
+              dojo_id   : rows[i].dojo_id,
+              id        : rows[i].id,
+            });
           } else {
-            res.push({ name: rows[i].name, tickets: 1, checkin: 1, session_id: rows[i].session_id, dojo_id: rows[i].dojo_id, id: rows[i].id });
+            res.push({
+              name      : rows[i].name,
+              tickets   : 1,
+              checkin   : 1,
+              session_id: rows[i].session_id,
+              dojo_id   : rows[i].dojo_id,
+              id        : rows[i].id,
+            });
           }
         } else {
           if (_.isEmpty(rows[i].attendance)) {
@@ -1035,7 +1102,12 @@ function averageEventCap (...args) {
           if (res[i].id !== prev.id) {
             for (let j = 0; j < rows.length; j++) {
               if (res[i].session_id === rows[j].session_id) {
-                events.push({ name: res[i].name, tickets: res[i].tickets, checkin: res[i].checkin, quantity: rows[j].quantity });
+                events.push({
+                  name    : res[i].name,
+                  tickets : res[i].tickets,
+                  checkin : res[i].checkin,
+                  quantity: rows[j].quantity,
+                });
                 j = rows.length;
               }
             }
@@ -1052,7 +1124,11 @@ function averageEventCap (...args) {
         }
         fs.appendFileSync(filename, '\nTickets Sold\n');
         for (const i in events) {
-          fs.appendFileSync(filename, `${events[i].name}, tickets Sold: ${events[i].tickets}, checkins: ${events[i].checkin}, tickets available: ${events[i].quantity}\n`);
+          fs.appendFileSync(
+            filename,
+            `${events[i].name}, tickets Sold: ${events[i].tickets}, checkins: ${events[i]
+              .checkin}, tickets available: ${events[i].quantity}\n`
+          );
         }
         console.log('written');
         return Promise.resolve();
