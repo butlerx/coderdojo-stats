@@ -1,2 +1,3 @@
-node_modules/
-lib
+**/*{.,-}min.js
+node_modules
+.esm-cache
