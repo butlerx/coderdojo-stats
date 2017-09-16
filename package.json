@@ -1,19 +1,50 @@
 {
-  "name": "super-quick-stats-tool",
-  "version": "1.0.1",
-  "description": "",
+  "name": "coderdojo-stats",
+  "version": "2.0.0",
+  "description": "Quick and dirty coderdojo stats",
   "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "bin": {
+    "cd-stats": "index.js"
   },
-  "author": "",
-  "license": "ISC",
+  "files": [
+    "index.js",
+    "yarn.lock",
+    "lib"
+  ],
+  "@std/esm": {
+    "esm": "js"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "fix": "eslint . --fix"
+  },
+  "author": "CoderDojo",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/CoderDojo/coderdojo-stats/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CoderDojo/coderdojo-stats"
+  },
   "dependencies": {
-    "bluebird": "^3.4.1",
-    "knex": "^0.11.10",
-    "lodash": "^4.15.0",
+    "@std/esm": "^0.2.1",
+    "commander": "^2.11.0",
+    "fs-extra": "^4.0.0",
+    "json2csv": "^3.10.0",
+    "knex": "^0.13.0",
+    "lodash": "^4.17.4",
     "minimist": "^1.2.0",
-    "moment": "^2.14.1",
-    "pg": "^6.0.1"
+    "moment": "^2.18.1",
+    "pg": "^7.0.2",
+    "s3": "^4.4.0"
+  },
+  "devDependencies": {
+    "eslint": "^4.6.0",
+    "eslint-config-coderdojo": "^1.0.6",
+    "eslint-plugin-chai-friendly": "^0.4.0",
+    "eslint-plugin-import": "^2.7.0",
+    "eslint-plugin-jsx-a11y": "^5.1.1",
+    "eslint-plugin-react": "^7.3.0"
   }
 }
