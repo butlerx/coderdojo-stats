@@ -1,8 +1,18 @@
-# cd-stats
+# CoderDojo-stats
 
 ## Run
-To Run do the following
+
+To generate stats run the following commands
+
 ```
-docker run --rm --network host -v ./stats:/usr/src/app/stats coderdojo/stats
+docker-compose up -d db
+docker-compose run --rm db pg_restore -C -U platform -h db -Fd /db/dojos
+docker-compose run --rm db pg_restore -C -U platform -h db -Fd /db/events
+docker-compose run --rm db pg_restore -C -U platform -h db -Fd /db/users
+docker-compose up stats
 ```
-This will print possible args, re-run the command with your selected output
+
+This will run the default `get-stats` argument modify the command arguments to
+generate relevant stats.
+
+Make sure to have db dumps called `users`, `dojos`, `events` in the dump folder
